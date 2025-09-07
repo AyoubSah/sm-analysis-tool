@@ -1,0 +1,12 @@
+run api
+uvicorn app.main:app --reload --port 8000
+
+
+test api: curl -s -X POST "http://localhost:8000/scrape-analyze"   -H "Content-Type: application/json"   -d '{"graph_api_key":"EAAsC31VcgZAQBPFUgxbTie5OEQQVVIRZAoiB2ETyvzbJPmJSgemDFGC0ykn2FgIq6AJDMyd3p56PV2O5AiCUZArJVz1tGIZCd7koTi1MArbW09Oj3BrDc6MwpIn7ZAnaAIUZAcWOXG1zjWRhkWAenq8hAcIAXf8ahb2rYM7sWlwJLe77l7KMzCkLwAZAqnZBYJwuTF9D99450TqnmEzxjxP6d9ZCL","page":"681037818437352","max_posts":5,"max_comments":200,"since":"2025-09-05","until":"2025-09-07"}'
+
+
+
+toke: EAAsC31VcgZAQBPFUgxbTie5OEQQVVIRZAoiB2ETyvzbJPmJSgemDFGC0ykn2FgIq6AJDMyd3p56PV2O5AiCUZArJVz1tGIZCd7koTi1MArbW09Oj3BrDc6MwpIn7ZAnaAIUZAcWOXG1zjWRhkWAenq8hAcIAXf8ahb2rYM7sWlwJLe77l7KMzCkLwAZAqnZBYJwuTF9D99450TqnmEzxjxP6d9ZCL
+
+page id 
+681037818437352
