@@ -1,0 +1,29 @@
+# Data manipulation and analysis
+pandas>=1.3.0
+numpy<2
+
+# Data visualization
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Statistical analysis
+scipy>=1.7.0
+prince
+scikit-learn
+# Regular expressions (part of Python standard library, but listed for clarity)
+# re - built-in module
+
+# Note: Some functionality may require additional packages depending on specific use cases:
+# - For advanced clustering: scikit-learn
+# - For interactive plotting: plotly
+# - For Excel file handling: openpyxl, xlrd
+
+fastapi
+uvicorn[standard]
+transformers
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+torchaudio==2.2.2+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+requests
+httpx
