@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import DashboardCard from "@/components/DashboardCard";
 import { Input } from "@/components/ui/input";
@@ -10,12 +10,20 @@ import {
 } from "@/components/charts/Charts";
 import { StatCard } from "@/components/StatCard";
 import { useScrapeAnalyze } from "@/hooks/useScrapeAnalyze";
+import { useAnalyzeCsvUpload } from "@/hooks/useAnalyzeCsv";
 import { generateReport } from "@/lib/generateReport";
+import {
+  // generateCategoriesCsv,
+  generateCommentsCsv,
+} from "@/components/report/generateCsv";
 import type {
   ScrapeAnalyzeRequest,
   CommentAnalysis,
 } from "@/hooks/useScrapeAnalyze";
 import { useAnalysisStore } from "@/store/useAnalysisStore";
+import { useSettingsStore } from "@/store/useSettingsStore";
+import * as Papa from "papaparse";
+import { toast } from "sonner";
 
 export default function Dashboard() {
   const [formData, setFormData] = useState({
@@ -28,10 +36,30 @@ export default function Dashboard() {
   });
 
   const { mutate: analyzeComments, isPending, error } = useScrapeAnalyze();
-
+  const {
+    mutate: analyzeCsv,
+    isPending: isCsvPending,
+    error: csvError,
+  } = useAnalyzeCsvUpload();
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isGeneratingCommentsCsv, setIsGeneratingCommentsCsv] = useState(false);
+  // const [isGeneratingCategoriesCsv, setIsGeneratingCategoriesCsv] = useState(false);
   const setAnalysis = useAnalysisStore((s) => s.setAnalysis);
   const analytics = useAnalysisStore((s) => s.analytics);
   const comments_analyzed = useAnalysisStore((s) => s.comments_analyzed);
+  // CSV local state
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvValid, setCsvValid] = useState(false);
+  const [csvIssues, setCsvIssues] = useState<string[]>([]);
+  // Initialize form with settings when component mounts (run once)
+  useEffect(() => {
+    const { graph_api_key, page } = useSettingsStore.getState();
+    setFormData((prev) => ({
+      ...prev,
+      graph_api_key: prev.graph_api_key || graph_api_key || "",
+      page: prev.page || page || "",
+    }));
+  }, []);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -59,6 +87,14 @@ export default function Dashboard() {
     analyzeComments(payload, {
       onSuccess: (data) => {
         setAnalysis(data);
+        toast.success("Ingestion started", {
+          description: "Data fetched and analyzed successfully.",
+        });
+      },
+      onError: (err) => {
+        toast.error("Analysis failed", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
       },
     });
   };
@@ -68,6 +104,82 @@ export default function Dashboard() {
       ...prev,
       [field]: value,
     }));
+  };
+
+  const validateCsvFile = async (file: File) => {
+    return new Promise<{ valid: boolean; issues: string[] }>((resolve) => {
+      const issues: string[] = [];
+      Papa.parse<Record<string, string>>(file, {
+        header: true,
+        skipEmptyLines: true,
+        preview: 1000, // limit for validation
+        complete: (results: Papa.ParseResult<Record<string, string>>) => {
+          const data = results.data;
+          const meta = results.meta;
+          const fields = (meta.fields || []).map((f: string) =>
+            f.trim().toLowerCase()
+          );
+
+          // Accept two formats: with header (id,comment[,created_time]) OR single column without header
+          const hasHeader = fields.includes("comment");
+          if (!hasHeader) {
+            // Try parsing without header: first column is comment
+            Papa.parse<string[]>(file, {
+              header: false,
+              skipEmptyLines: true,
+              preview: 1000,
+              complete: (res2: Papa.ParseResult<string[]>) => {
+                const rows = res2.data as string[][];
+                if (!rows.length) {
+                  issues.push("CSV has no rows.");
+                }
+                let validRowCount = 0;
+                rows.forEach((row, idx) => {
+                  const first = (Array.isArray(row) ? row[0] : String(row))
+                    ?.toString()
+                    ?.trim();
+                  if (!first) {
+                    issues.push(`Row ${idx + 1}: empty first column.`);
+                  } else {
+                    validRowCount++;
+                  }
+                });
+                if (validRowCount === 0) {
+                  issues.push("No valid comments found in first column.");
+                }
+                resolve({ valid: issues.length === 0, issues });
+              },
+              error: () => {
+                issues.push("Failed to parse CSV without header.");
+                resolve({ valid: false, issues });
+              },
+            });
+            return;
+          }
+
+          // Header present: must have 'comment' column; 'id' and 'created_time' optional
+          if (!fields.includes("comment")) {
+            issues.push("Missing required 'comment' column.");
+          }
+          const sample = data as Record<string, string>[];
+          let validRowCount = 0;
+          sample.forEach((row, idx) => {
+            const comment = (row["comment"] ?? "").toString().trim();
+            if (!comment) {
+              issues.push(`Row ${idx + 2}: empty comment.`); // +2 accounts for header
+            } else {
+              validRowCount++;
+            }
+          });
+          if (validRowCount === 0) {
+            issues.push("No valid comments found.");
+          }
+          resolve({ valid: issues.length === 0, issues });
+        },
+        error: () =>
+          resolve({ valid: false, issues: ["Failed to parse CSV."] }),
+      });
+    });
   };
 
   // Transform store data for charts
@@ -229,17 +341,106 @@ export default function Dashboard() {
             )}
           </div>
           <div className="space-y-3">
-            <Input type="file" placeholder="Upload CSV" />
+            <Input
+              type="file"
+              accept=".csv,text/csv"
+              placeholder="Upload CSV"
+              onChange={async (e) => {
+                const file = e.target.files?.[0] || null;
+                setCsvFile(file);
+                setCsvValid(false);
+                setCsvIssues([]);
+                if (file) {
+                  const { valid, issues } = await validateCsvFile(file);
+                  setCsvValid(valid);
+                  setCsvIssues(issues);
+                  if (valid) {
+                    toast.success("CSV validated", {
+                      description: `${file.name} looks good.`,
+                    });
+                  } else {
+                    toast.error("CSV validation failed", {
+                      description: issues[0] || "Please check the file.",
+                    });
+                  }
+                }
+              }}
+            />
             <p className="text-xs text-muted-foreground">
-              CSV must contain at least columns: id, comment (demo validation
-              not implemented).
+              CSV must be either single-column (first column = comment) or have
+              headers: id, comment[, created_time]. We'll validate before
+              ingesting.
             </p>
-            <Button variant="outline" className="w-full">
-              Validate CSV
+            {csvIssues.length > 0 && (
+              <ul className="text-xs text-red-500 list-disc pl-5 space-y-1 max-h-24 overflow-auto">
+                {csvIssues.slice(0, 6).map((msg, i) => (
+                  <li key={i}>{msg}</li>
+                ))}
+                {csvIssues.length > 6 && <li>…and more</li>}
+              </ul>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={async () => {
+                if (!csvFile) return;
+                const { valid, issues } = await validateCsvFile(csvFile);
+                setCsvValid(valid);
+                setCsvIssues(issues);
+                if (valid) {
+                  toast.success("CSV validated", {
+                    description: `${csvFile.name} is valid.`,
+                  });
+                } else {
+                  toast.error("CSV validation failed", {
+                    description: issues[0] || "Please fix the CSV and retry.",
+                  });
+                }
+              }}
+              disabled={!csvFile}
+            >
+              {csvFile ? "Re-validate CSV" : "Validate CSV"}
             </Button>
-            <Button className="w-full" variant="secondary">
-              Ingest File
+            <Button
+              type="button"
+              className="w-full"
+              variant="secondary"
+              disabled={!csvFile || !csvValid || isCsvPending}
+              onClick={() => {
+                if (!csvFile || !csvValid) return;
+                analyzeCsv(
+                  { file: csvFile, batch_size: 32 },
+                  {
+                    onSuccess: (data) => {
+                      setAnalysis(data);
+                      toast.success("CSV ingested", {
+                        description: `${csvFile.name} processed successfully.`,
+                      });
+                    },
+                    onError: (err) =>
+                      toast.error("CSV ingestion failed", {
+                        description:
+                          err instanceof Error ? err.message : "Unknown error",
+                      }),
+                  }
+                );
+              }}
+            >
+              {isCsvPending
+                ? "Ingesting…"
+                : csvValid
+                ? "Ingest File"
+                : "Fix CSV to Ingest"}
             </Button>
+            {csvError && (
+              <p className="text-xs text-red-500">
+                Error:{" "}
+                {csvError instanceof Error
+                  ? csvError.message
+                  : "Failed to ingest CSV"}
+              </p>
+            )}
           </div>
         </form>
       </DashboardCard>
@@ -343,21 +544,69 @@ export default function Dashboard() {
       <div className="flex flex-wrap gap-3">
         <Button
           size="sm"
-          onClick={() => {
-            if (analytics) {
-              generateReport();
+          onClick={async () => {
+            if (!analytics || isGeneratingPdf) return;
+            setIsGeneratingPdf(true);
+            try {
+              await generateReport();
+              toast.success("PDF generated", {
+                description: "Report downloaded and saved to Reports.",
+              });
+            } catch (err) {
+              toast.error("PDF generation failed", {
+                description:
+                  err instanceof Error ? err.message : "Unknown error",
+              });
+            } finally {
+              setIsGeneratingPdf(false);
             }
           }}
-          disabled={!analytics}
+          disabled={!analytics || isGeneratingPdf}
         >
-          Download PDF
+          {isGeneratingPdf ? "Preparing PDF…" : "Download PDF"}
         </Button>
-        <Button size="sm" variant="outline">
-          Download CSV
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            if (!analytics || isGeneratingCommentsCsv) return;
+            setIsGeneratingCommentsCsv(true);
+            try {
+              await generateCommentsCsv();
+              toast.success("CSV exported", {
+                description: "Comments CSV downloaded and saved to Reports.",
+              });
+            } catch (err) {
+              toast.error("CSV export failed", {
+                description:
+                  err instanceof Error ? err.message : "Unknown error",
+              });
+            } finally {
+              setIsGeneratingCommentsCsv(false);
+            }
+          }}
+          disabled={!analytics || isGeneratingCommentsCsv}
+        >
+          {isGeneratingCommentsCsv ? "Preparing CSV…" : "Export CSV"}
         </Button>
-        <Button size="sm" variant="secondary">
-          Generate Snapshot
-        </Button>
+        {/* <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            if (!analytics || isGeneratingCategoriesCsv) return;
+            setIsGeneratingCategoriesCsv(true);
+            try {
+              await generateCategoriesCsv();
+            } finally {
+              setIsGeneratingCategoriesCsv(false);
+            }
+          }}
+          disabled={!analytics || isGeneratingCategoriesCsv}
+        >
+          {isGeneratingCategoriesCsv
+            ? "Preparing Categories CSV…"
+            : "Export Categories CSV"}
+        </Button> */}
       </div>
     </div>
   );

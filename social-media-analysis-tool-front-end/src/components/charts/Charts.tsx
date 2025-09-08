@@ -52,6 +52,7 @@ interface PieChartCardProps {
   colors?: string[];
   description?: string;
   totalLabel?: string;
+  disableAnimation?: boolean;
 }
 
 export function PieChartCard({
@@ -60,6 +61,7 @@ export function PieChartCard({
   colors = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444"],
   description,
   totalLabel = "Total",
+  disableAnimation,
 }: PieChartCardProps) {
   const total = data.reduce((a, b) => a + b.value, 0);
   return (
@@ -73,15 +75,18 @@ export function PieChartCard({
             innerRadius={50}
             outerRadius={80}
             paddingAngle={2}
+            isAnimationActive={!disableAnimation}
+            animationDuration={disableAnimation ? 0 : undefined}
           >
             {data.map((_, i) => (
               <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
           <RTooltip
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             formatter={(value: any, _name: any, p: any) => [
               `${value} (${((value / total) * 100).toFixed(1)}%)`,
-              p.payload.name,
+              p?.payload?.name,
             ]}
           />
           <Legend />
@@ -106,6 +111,7 @@ interface BarChartCardProps {
   description?: string;
   colorMap?: Record<string, string>;
   hideLegend?: boolean;
+  disableAnimation?: boolean;
 }
 
 export function BarChartCard({
@@ -116,6 +122,7 @@ export function BarChartCard({
   description,
   colorMap,
   hideLegend,
+  disableAnimation,
 }: BarChartCardProps) {
   return (
     <ChartCard title={title} description={description}>
@@ -126,7 +133,13 @@ export function BarChartCard({
           <YAxis />
           <RTooltip />
           <Legend />
-          <Bar dataKey={dataKey} fill="#3b82f6" radius={[4, 4, 0, 0]}>
+          <Bar
+            dataKey={dataKey}
+            fill="#3b82f6"
+            radius={[4, 4, 0, 0]}
+            isAnimationActive={!disableAnimation}
+            animationDuration={disableAnimation ? 0 : undefined}
+          >
             {data.map((entry, index) => (
               <Cell
                 key={index}
@@ -159,6 +172,7 @@ interface LineChartCardProps {
   }[];
   description?: string;
   areaKey?: string;
+  disableAnimation?: boolean;
 }
 
 export function LineChartCard({
@@ -167,6 +181,7 @@ export function LineChartCard({
   lines,
   description,
   areaKey,
+  disableAnimation,
 }: LineChartCardProps) {
   return (
     <ChartCard title={title} description={description}>
@@ -184,6 +199,8 @@ export function LineChartCard({
               fill="#3b82f6"
               stroke="#3b82f6"
               fillOpacity={0.15}
+              isAnimationActive={!disableAnimation}
+              animationDuration={disableAnimation ? 0 : undefined}
             />
           )}
           {lines.map((l) => (
@@ -194,6 +211,8 @@ export function LineChartCard({
               stroke={l.stroke || "#3b82f6"}
               strokeWidth={2}
               dot={false}
+              isAnimationActive={!disableAnimation}
+              animationDuration={disableAnimation ? 0 : undefined}
             />
           ))}
         </LineChart>
